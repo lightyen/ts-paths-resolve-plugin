@@ -3,7 +3,7 @@
 import type { ResolvePlugin } from "webpack"
 import type { Hook } from "tapable"
 import type { CompilerOptions } from "typescript"
-import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
+import * as getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
 import * as path from "path"
 import * as fs from "fs"
 import * as json5 from "json5"
