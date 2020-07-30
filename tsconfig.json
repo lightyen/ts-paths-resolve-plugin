@@ -1,13 +1,16 @@
 {
   "compilerOptions": {
     "strict": true,
-    "declaration": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "removeComments": true,
-    "strictNullChecks": false,
     "noImplicitAny": false,
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "target": "es6",
-    "outDir": "dist"
-  }
+    "strictNullChecks": false,
+    "target": "es5",
+    "baseUrl": "."
+  },
+  "include": ["src/**/*"]
 }

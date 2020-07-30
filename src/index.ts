@@ -3,11 +3,11 @@
 import type { ResolvePlugin } from "webpack"
 import type { Hook } from "tapable"
 import type { CompilerOptions } from "typescript"
-import * as getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
-import { findConfigFile, sys } from "typescript"
-import * as path from "path"
-import * as fs from "fs"
-import * as json5 from "json5"
+import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
+import { findConfigFile, sys, nodeModuleNameResolver } from "typescript"
+import path from "path"
+import fs from "fs"
+import json5 from "json5"
 
 interface Hooks {
 	describedResolve: Hook
@@ -16,6 +16,9 @@ interface Hooks {
 interface Request {
 	request?: Request | string
 	relativePath: string
+	context: {
+		issuer: string
+	}
 }
 
 interface ResolveContext {
@@ -44,30 +47,28 @@ interface Mapping {
 	targets: string[]
 }
 
-interface PluginOptions {
+interface TsPathsResolvePluginOpitons {
 	tsConfigPath: string
 	logLevel: "warn" | "debug" | "none"
-	extensions: string[]
 }
 
-/** resolve plugin for tsconfig paths */
-class TsPathsResolvePlugin implements ResolvePlugin {
+export default TsPathsResolvePlugin
+
+export class TsPathsResolvePlugin implements ResolvePlugin {
+	pluginName: string
 	configFilePath: string
-	extensions: string[]
+	compilerOptions: CompilerOptions
 	absoluteBaseUrl: string
 	mappings: Mapping[]
-	pluginName: string
 	logLevel: "warn" | "debug" | "none"
 	constructor({
-		tsConfigPath = process.env["TS_NODE_PROJECT"] || findConfigFile(".", sys.fileExists),
+		tsConfigPath = process.env["TS_NODE_PROJECT"] || findConfigFile(".", sys.fileExists) || "tsconfig.json",
 		logLevel = "warn",
-		extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs"],
-	}: Partial<PluginOptions> = {}) {
+	}: Partial<TsPathsResolvePluginOpitons> = {}) {
 		this.pluginName = "ts-paths-resolve-plugin"
 		this.configFilePath = tsConfigPath
-		this.extensions = extensions
-		this.mappings = this.createMappings()
 		this.logLevel = logLevel
+		this.mappings = this.createMappings()
 	}
 
 	apply(resolver: Resolver) {
@@ -87,6 +88,7 @@ class TsPathsResolvePlugin implements ResolvePlugin {
 		const mappings: Mapping[] = []
 		const { compilerOptions } = this.getTsConfig()
 		this.absoluteBaseUrl = path.resolve(path.dirname(this.configFilePath), compilerOptions?.baseUrl || ".")
+		this.compilerOptions = compilerOptions
 		const paths = compilerOptions.paths || {}
 
 		if (this.logLevel != "none") {
@@ -135,12 +137,14 @@ class TsPathsResolvePlugin implements ResolvePlugin {
 	private findMapping({
 		mapping,
 		source,
-		extensions,
+		importer,
+		compilerOptions,
 		baseUrl = ".",
 	}: {
 		mapping: Mapping
 		source: string
-		extensions: string[]
+		importer: string
+		compilerOptions: CompilerOptions
 		baseUrl: string
 	}) {
 		let match = source.match(mapping.pattern)
@@ -150,13 +154,12 @@ class TsPathsResolvePlugin implements ResolvePlugin {
 		for (const target of mapping.targets) {
 			const newPath = mapping.wildcard ? target.replace("*", match[1]) : target
 			const answer = path.resolve(baseUrl, newPath)
+			const { resolvedModule } = nodeModuleNameResolver(answer, importer, compilerOptions, sys)
+			if (resolvedModule) {
+				return resolvedModule.resolvedFileName
+			}
 			if (fs.existsSync(answer)) {
 				return answer
-			}
-			for (const ext of extensions) {
-				if (fs.existsSync(answer + ext)) {
-					return answer + ext
-				}
 			}
 		}
 		return ""
@@ -170,12 +173,13 @@ class TsPathsResolvePlugin implements ResolvePlugin {
 			}
 
 			const hook = resolver.ensureHook("resolve")
-
+			console.log(context)
 			for (const mapping of this.mappings) {
 				const resolved = this.findMapping({
 					mapping,
 					source: innerRequest,
-					extensions: this.extensions,
+					importer: request.context.issuer,
+					compilerOptions: this.compilerOptions,
 					baseUrl: this.absoluteBaseUrl,
 				})
 				if (resolved) {
@@ -196,5 +200,3 @@ class TsPathsResolvePlugin implements ResolvePlugin {
 		}
 	}
 }
-
-export = TsPathsResolvePlugin
