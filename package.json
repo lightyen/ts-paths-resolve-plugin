@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "rollup -c",
-    "prepublish": "rollup -c"
+    "prepare": "rollup -c"
   },
   "author": "lightyen",
   "license": "MIT",
