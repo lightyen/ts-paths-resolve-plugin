@@ -173,7 +173,7 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 			}
 
 			const hook = resolver.ensureHook("resolve")
-			console.log(context)
+
 			for (const mapping of this.mappings) {
 				const resolved = this.findMapping({
 					mapping,
