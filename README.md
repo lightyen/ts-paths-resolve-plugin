@@ -6,28 +6,20 @@ Make webpack resolve alias with tsconfig paths
 yarn add -D ts-paths-resolve-plugin
 ```
 
-or
-
-```sh
-npm install --save-dev ts-paths-resolve-plugin
-```
-
-Use
+webpack.config.js
 
 ```js
 
 const TsPathsResolvePlugin = require('ts-paths-resolve-plugin');
 
 module.exports = {
-  ...
   resolve: {
-    plugins: [new TsPathsResolvePlugin(/** options **/)]
+    plugins: [new TsPathsResolvePlugin()]
   }
-  ...
 }
 ```
 
-Example tsconfig
+Example tsconfig.json
 
 ```json
 {

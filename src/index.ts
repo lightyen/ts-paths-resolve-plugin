@@ -1,13 +1,18 @@
-// Fork from https://github.com/s-panferov/awesome-typescript-loader/blob/master/src/paths-plugin.ts
-
 import type { ResolvePlugin } from "webpack"
 import type { Hook } from "tapable"
-import type { CompilerOptions } from "typescript"
+import type { CompilerHost, CompilerOptions, ModuleResolutionCache } from "typescript"
+import {
+	ModuleResolutionKind,
+	sys,
+	findConfigFile,
+	readConfigFile,
+	resolveModuleName,
+	createCompilerHost,
+	createModuleResolutionCache,
+} from "typescript"
 import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
-import { findConfigFile, sys, nodeModuleNameResolver } from "typescript"
 import path from "path"
 import fs from "fs"
-import json5 from "json5"
 
 interface Hooks {
 	describedResolve: Hook
@@ -52,15 +57,15 @@ interface TsPathsResolvePluginOpitons {
 	logLevel: "warn" | "debug" | "none"
 }
 
-export default TsPathsResolvePlugin
-
 export class TsPathsResolvePlugin implements ResolvePlugin {
 	pluginName: string
 	configFilePath: string
 	compilerOptions: CompilerOptions
-	absoluteBaseUrl: string
+	baseUrl: string
 	mappings: Mapping[]
 	logLevel: "warn" | "debug" | "none"
+	host: CompilerHost
+	cache: ModuleResolutionCache
 	constructor({
 		tsConfigPath = process.env["TS_NODE_PROJECT"] || findConfigFile(".", sys.fileExists) || "tsconfig.json",
 		logLevel = "warn",
@@ -68,7 +73,16 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		this.pluginName = "ts-paths-resolve-plugin"
 		this.configFilePath = tsConfigPath
 		this.logLevel = logLevel
+		const { compilerOptions } = this.getTsConfig()
+		this.compilerOptions = compilerOptions
+		this.baseUrl = path.resolve(path.dirname(this.configFilePath), compilerOptions.baseUrl)
 		this.mappings = this.createMappings()
+		this.host = createCompilerHost(this.compilerOptions)
+		this.cache = createModuleResolutionCache(
+			this.host.getCurrentDirectory(),
+			this.host.getCanonicalFileName,
+			this.compilerOptions,
+		)
 	}
 
 	apply(resolver: Resolver) {
@@ -76,20 +90,29 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 	}
 
 	private getTsConfig(): { compilerOptions: CompilerOptions } {
-		const configJson = sys.readFile(this.configFilePath)
-		if (!configJson) {
-			throw Error(`config is not found: ${this.configFilePath}`)
+		const { config, error } = readConfigFile(this.configFilePath, sys.readFile)
+		if (error) {
+			throw new Error(error.messageText.toString())
 		}
-		return json5.parse(configJson)
+		let { compilerOptions } = config
+		compilerOptions = compilerOptions || {}
+		compilerOptions.baseUrl = compilerOptions.baseUrl || "."
+		switch (String.prototype.toLocaleLowerCase(compilerOptions.moduleResolution)) {
+			case "classic":
+				compilerOptions.moduleResolution = ModuleResolutionKind.Classic
+				break
+			default:
+				compilerOptions.moduleResolution = ModuleResolutionKind.NodeJs
+				break
+		}
+		return { compilerOptions }
 	}
 
 	private createMappings(): Mapping[] {
 		const escapeRegExp = (value: string) => value.replace(/[-\/\\^$*+?\.()[\]{}]/g, "\\$&")
 		const mappings: Mapping[] = []
-		const { compilerOptions } = this.getTsConfig()
-		this.absoluteBaseUrl = path.resolve(path.dirname(this.configFilePath), compilerOptions?.baseUrl || ".")
-		this.compilerOptions = compilerOptions
-		const paths = compilerOptions.paths || {}
+
+		const paths = this.compilerOptions.paths || {}
 
 		if (this.logLevel != "none") {
 			if (Object.keys(paths).length === 0) {
@@ -108,7 +131,7 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 			const excapedAlias = escapeRegExp(alias)
 			const targets = paths[alias].filter(target => {
 				if (target.startsWith("@types") || target.endsWith(".d.ts")) {
-					if (this.logLevel != "none") {
+					if (this.logLevel === "debug") {
 						console.log(`\x1b[1;33m(!) [${this.pluginName}]: type defined ${target} is ignored.\x1b[0m`)
 					}
 					return false
@@ -120,7 +143,7 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 				: new RegExp(`^${excapedAlias}$`)
 			mappings.push({ wildcard, alias, pattern, targets })
 		}
-		if (this.logLevel == "debug") {
+		if (this.logLevel === "debug") {
 			for (const mapping of mappings) {
 				console.log(
 					`\x1b[36m[${this.pluginName}]\x1b[0m`,
@@ -138,13 +161,11 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		mapping,
 		source,
 		importer,
-		compilerOptions,
-		baseUrl = ".",
+		baseUrl,
 	}: {
 		mapping: Mapping
 		source: string
 		importer: string
-		compilerOptions: CompilerOptions
 		baseUrl: string
 	}) {
 		let match = source.match(mapping.pattern)
@@ -154,9 +175,9 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		for (const target of mapping.targets) {
 			const newPath = mapping.wildcard ? target.replace("*", match[1]) : target
 			const answer = path.resolve(baseUrl, newPath)
-			const { resolvedModule } = nodeModuleNameResolver(answer, importer, compilerOptions, sys)
-			if (resolvedModule) {
-				return resolvedModule.resolvedFileName
+			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host, this.cache)
+			if (result?.resolvedModule) {
+				return result.resolvedModule.resolvedFileName
 			}
 			if (fs.existsSync(answer)) {
 				return answer
@@ -179,11 +200,10 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 					mapping,
 					source: innerRequest,
 					importer: request.context.issuer,
-					compilerOptions: this.compilerOptions,
-					baseUrl: this.absoluteBaseUrl,
+					baseUrl: this.baseUrl,
 				})
 				if (resolved) {
-					if (this.logLevel == "debug") {
+					if (this.logLevel === "debug") {
 						console.log(`\x1b[36m[${this.pluginName}]\x1b[0m`, innerRequest, "->", resolved)
 					}
 					const newRequest = { ...request, request: resolved }
@@ -200,3 +220,5 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		}
 	}
 }
+
+export default TsPathsResolvePlugin

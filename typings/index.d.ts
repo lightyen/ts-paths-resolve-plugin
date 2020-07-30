@@ -6,7 +6,7 @@ interface TsPathsResolvePluginOpitons {
 }
 
 declare class TsPathsResolvePlugin implements ResolvePlugin {
-	constructor({ tsConfigPath, logLevel }?: Partial<TsPathsResolvePluginOpitons>)
+	constructor(options?: Partial<TsPathsResolvePluginOpitons>)
 	apply(resolver: any): void
 }
 

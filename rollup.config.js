@@ -14,6 +14,6 @@ export default [
 			},
 		],
 		plugins: [typescript(), nodeResolve({ preferBuiltins: true }), commonjs()],
-		external: ["fs", "path"],
+		external: ["fs", "path", "typescript"],
 	},
 ]
