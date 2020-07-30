@@ -1,6 +1,6 @@
 {
   "name": "ts-paths-resolve-plugin",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "webpack alias resolve plugin for that paths in tsconfig.json",
   "main": "dist/index.js",
   "types": "typings/index.d.ts",
@@ -20,15 +20,13 @@
     "@types/webpack": "^4.41.13",
     "rollup": "^2.23.0",
     "rollup-plugin-typescript2": "^0.27.1",
-    "typescript": "^3.9.7"
+    "typescript": "^3.9.7",
+    "webpack": "^4.43.0"
   },
   "keywords": [
     "webpack",
     "plugin",
     "typescript",
     "paths"
-  ],
-  "dependencies": {
-    "webpack": "^4.43.0"
-  }
+  ]
 }

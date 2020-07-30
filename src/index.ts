@@ -1,6 +1,6 @@
 import type { ResolvePlugin } from "webpack"
 import type { Hook } from "tapable"
-import type { CompilerHost, CompilerOptions, ModuleResolutionCache } from "typescript"
+import type { CompilerHost, CompilerOptions } from "typescript"
 import {
 	ModuleResolutionKind,
 	sys,
@@ -8,7 +8,6 @@ import {
 	readConfigFile,
 	resolveModuleName,
 	createCompilerHost,
-	createModuleResolutionCache,
 } from "typescript"
 import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
 import path from "path"
@@ -65,7 +64,6 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 	mappings: Mapping[]
 	logLevel: "warn" | "debug" | "none"
 	host: CompilerHost
-	cache: ModuleResolutionCache
 	constructor({
 		tsConfigPath = process.env["TS_NODE_PROJECT"] || findConfigFile(".", sys.fileExists) || "tsconfig.json",
 		logLevel = "warn",
@@ -78,11 +76,6 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		this.baseUrl = path.resolve(path.dirname(this.configFilePath), compilerOptions.baseUrl)
 		this.mappings = this.createMappings()
 		this.host = createCompilerHost(this.compilerOptions)
-		this.cache = createModuleResolutionCache(
-			this.host.getCurrentDirectory(),
-			this.host.getCanonicalFileName,
-			this.compilerOptions,
-		)
 	}
 
 	apply(resolver: Resolver) {
@@ -175,7 +168,7 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		for (const target of mapping.targets) {
 			const newPath = mapping.wildcard ? target.replace("*", match[1]) : target
 			const answer = path.resolve(baseUrl, newPath)
-			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host, this.cache)
+			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host)
 			if (result?.resolvedModule) {
 				return result.resolvedModule.resolvedFileName
 			}
