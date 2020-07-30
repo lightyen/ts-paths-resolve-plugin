@@ -45,9 +45,12 @@ interface Resolver {
 }
 
 interface Mapping {
-	wildcard: boolean
-	alias: string
-	pattern: RegExp
+	alias: {
+		source: string
+		unique: boolean
+		wildcard: boolean
+		pattern: RegExp
+	}
 	targets: string[]
 }
 
@@ -101,6 +104,8 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		return { compilerOptions }
 	}
 
+	// TODO: match "*": ["*", "generated/*"]
+
 	private createMappings(): Mapping[] {
 		const escapeRegExp = (value: string) => value.replace(/[-\/\\^$*+?\.()[\]{}]/g, "\\$&")
 		const mappings: Mapping[] = []
@@ -120,6 +125,7 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 				}
 				continue
 			}
+			const unique = false
 			const wildcard = alias.indexOf("*") !== -1
 			const excapedAlias = escapeRegExp(alias)
 			const targets = paths[alias].filter(target => {
@@ -134,14 +140,14 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 			const pattern = wildcard
 				? new RegExp(`^${excapedAlias.replace("\\*", "(.*)")}`)
 				: new RegExp(`^${excapedAlias}$`)
-			mappings.push({ wildcard, alias, pattern, targets })
+			mappings.push({ alias: { unique, source: alias, wildcard, pattern }, targets })
 		}
 		if (this.logLevel === "debug") {
 			for (const mapping of mappings) {
 				console.log(
 					`\x1b[36m[${this.pluginName}]\x1b[0m`,
 					"pattern:",
-					mapping.pattern,
+					mapping.alias.pattern,
 					"targets:",
 					mapping.targets,
 				)
@@ -161,12 +167,12 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		importer: string
 		baseUrl: string
 	}) {
-		let match = source.match(mapping.pattern)
+		let match = source.match(mapping.alias.pattern)
 		if (!match) {
 			return ""
 		}
 		for (const target of mapping.targets) {
-			const newPath = mapping.wildcard ? target.replace("*", match[1]) : target
+			const newPath = mapping.alias.wildcard ? target.replace("*", match[1]) : target
 			const answer = path.resolve(baseUrl, newPath)
 			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host)
 			if (result?.resolvedModule) {
