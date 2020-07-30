@@ -4,6 +4,7 @@ import type { ResolvePlugin } from "webpack"
 import type { Hook } from "tapable"
 import type { CompilerOptions } from "typescript"
 import * as getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
+import { findConfigFile, sys } from "typescript"
 import * as path from "path"
 import * as fs from "fs"
 import * as json5 from "json5"
@@ -37,120 +38,161 @@ interface Resolver {
 }
 
 interface Mapping {
-	star: boolean
+	wildcard: boolean
 	alias: string
 	pattern: RegExp
-	target: string
+	targets: string[]
 }
 
-const escapeRegExp = (value: string) => value.replace(/[-\/\\^$*+?\.()[\]{}]/g, "\\$&")
-
 interface PluginOptions {
-	configFile: string
-	logLevel: "warn" | "info" | "debug"
+	tsConfigPath: string
+	logLevel: "warn" | "debug" | "none"
+	extensions: string[]
 }
 
 /** resolve plugin for tsconfig paths */
 class TsPathsResolvePlugin implements ResolvePlugin {
 	configFilePath: string
+	extensions: string[]
 	absoluteBaseUrl: string
 	mappings: Mapping[]
 	pluginName: string
-	logLevel: "warn" | "info" | "debug"
+	logLevel: "warn" | "debug" | "none"
 	constructor({
-		configFile = process.env["TS_NODE_PROJECT"] || path.resolve(process.cwd(), "tsconfig.json"),
+		tsConfigPath = process.env["TS_NODE_PROJECT"] || findConfigFile(".", sys.fileExists),
 		logLevel = "warn",
+		extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs"],
 	}: Partial<PluginOptions> = {}) {
 		this.pluginName = "ts-paths-resolve-plugin"
-		this.configFilePath = configFile
+		this.configFilePath = tsConfigPath
+		this.extensions = extensions
 		this.mappings = this.createMappings()
 		this.logLevel = logLevel
 	}
 
+	apply(resolver: Resolver) {
+		resolver.hooks.describedResolve.tapAsync(this.pluginName, this.resolveTsPaths(resolver))
+	}
+
+	private getTsConfig(): { compilerOptions: CompilerOptions } {
+		const configJson = sys.readFile(this.configFilePath)
+		if (!configJson) {
+			throw Error(`config is not found: ${this.configFilePath}`)
+		}
+		return json5.parse(configJson)
+	}
+
 	private createMappings(): Mapping[] {
-		let json_str = fs.readFileSync(this.configFilePath, { encoding: "utf-8" })
-		const config: { compilerOptions: CompilerOptions } = json5.parse(json_str)
-		if (!config) {
-			return []
-		}
-		const { compilerOptions } = config
-		if (!compilerOptions) {
-			return []
-		}
-		const { baseUrl } = compilerOptions
-		this.absoluteBaseUrl = path.resolve(path.dirname(this.configFilePath), baseUrl || ".")
-		const paths = compilerOptions.paths ?? {}
+		const escapeRegExp = (value: string) => value.replace(/[-\/\\^$*+?\.()[\]{}]/g, "\\$&")
 		const mappings: Mapping[] = []
+		const { compilerOptions } = this.getTsConfig()
+		this.absoluteBaseUrl = path.resolve(path.dirname(this.configFilePath), compilerOptions?.baseUrl || ".")
+		const paths = compilerOptions.paths || {}
+
+		if (this.logLevel != "none") {
+			if (Object.keys(paths).length === 0) {
+				console.log(`\x1b[1;33m(!) [${this.pluginName}]: typescript path alias are empty.\x1b[0m`)
+			}
+		}
+
 		for (const alias of Object.keys(paths)) {
-			const star = alias.indexOf("*") !== -1
 			if (alias === "*") {
-				console.log(`\x1b[33m[${this.pluginName}]: alias "*" is not valid.\x1b[0m`)
+				if (this.logLevel != "none") {
+					console.log(`\x1b[1;33m(!) [${this.pluginName}]: alias "*" is not accepted.\x1b[0m`)
+				}
 				continue
 			}
+			const wildcard = alias.indexOf("*") !== -1
 			const excapedAlias = escapeRegExp(alias)
-			const targets = paths[alias]
-			for (const target of targets) {
-				if (target.indexOf("@types") !== -1 || target.indexOf(".d.ts") !== -1) {
-					console.log(`\x1b[33m[${this.pluginName}]: @types or *.d.ts is ignored.\x1b[0m`)
-					continue
+			const targets = paths[alias].filter(target => {
+				if (target.startsWith("@types") || target.endsWith(".d.ts")) {
+					if (this.logLevel != "none") {
+						console.log(`\x1b[1;33m(!) [${this.pluginName}]: type defined ${target} is ignored.\x1b[0m`)
+					}
+					return false
 				}
-				const pattern = star
-					? new RegExp(`^${excapedAlias.replace("\\*", "(.*)")}`)
-					: new RegExp(`^${excapedAlias}$`)
-				mappings.push({ star, alias, pattern, target })
+				return true
+			})
+			const pattern = wildcard
+				? new RegExp(`^${excapedAlias.replace("\\*", "(.*)")}`)
+				: new RegExp(`^${excapedAlias}$`)
+			mappings.push({ wildcard, alias, pattern, targets })
+		}
+		if (this.logLevel == "debug") {
+			for (const mapping of mappings) {
+				console.log(
+					`\x1b[36m[${this.pluginName}]\x1b[0m`,
+					"pattern:",
+					mapping.pattern,
+					"targets:",
+					mapping.targets,
+				)
 			}
 		}
 		return mappings
 	}
 
-	apply(resolver: Resolver) {
-		resolver.hooks.describedResolve.tapAsync("ts-paths-resolve-plugin", this.resolveTsPaths(resolver))
+	private findMapping({
+		mapping,
+		source,
+		extensions,
+		baseUrl = ".",
+	}: {
+		mapping: Mapping
+		source: string
+		extensions: string[]
+		baseUrl: string
+	}) {
+		let match = source.match(mapping.pattern)
+		if (!match) {
+			return ""
+		}
+		for (const target of mapping.targets) {
+			const newPath = mapping.wildcard ? target.replace("*", match[1]) : target
+			const answer = path.resolve(baseUrl, newPath)
+			if (fs.existsSync(answer)) {
+				return answer
+			}
+			for (const ext of extensions) {
+				if (fs.existsSync(answer + ext)) {
+					return answer + ext
+				}
+			}
+		}
+		return ""
 	}
 
 	private resolveTsPaths(resolver: Resolver) {
-		const len = this.mappings.length
 		return (request: Request, context: ResolveContext, callback: Function) => {
 			const innerRequest: string = getInnerRequest(resolver, request)
-			if (!innerRequest) {
+			if (!innerRequest || this.mappings.length == 0) {
 				return callback()
 			}
 
-			let m = 0
-			let match: RegExpMatchArray
-			for (; m < len; m++) {
-				match = innerRequest.match(this.mappings[m].pattern)
-				if (match) {
-					break
+			const hook = resolver.ensureHook("resolve")
+
+			for (const mapping of this.mappings) {
+				const resolved = this.findMapping({
+					mapping,
+					source: innerRequest,
+					extensions: this.extensions,
+					baseUrl: this.absoluteBaseUrl,
+				})
+				if (resolved) {
+					if (this.logLevel == "debug") {
+						console.log(`\x1b[36m[${this.pluginName}]\x1b[0m`, innerRequest, "->", resolved)
+					}
+					const newRequest = { ...request, request: resolved }
+					return resolver.doResolve(
+						hook,
+						newRequest,
+						"aliased with mapping '" + innerRequest + "': '" + mapping.alias + "' to '" + resolved + "'",
+						context,
+						callback,
+					)
 				}
 			}
-			if (this.logLevel === "debug") {
-				console.log(`\x1b[36mdebug\x1b[0m`, innerRequest)
-			}
-			if (m == len) {
-				return callback()
-			}
-
-			const { pattern, star, target, alias } = this.mappings[m]
-			const relative = star ? match[1] : match[0]
-			let newRequestPath = target
-			if (star) {
-				newRequestPath = newRequestPath.replace("*", relative)
-			}
-			newRequestPath = path.resolve(this.absoluteBaseUrl, newRequestPath)
-
-			if (this.logLevel === "debug" || this.logLevel === "info") {
-				console.log(`\x1b[34mmatch\x1b[0m`, innerRequest, pattern, relative)
-				console.log(`\x1b[32mresolved\x1b[0m`, newRequestPath)
-			}
-			const newRequest = { ...request, request: newRequestPath }
-			const hook = resolver.ensureHook("resolve")
-			return resolver.doResolve(
-				hook,
-				newRequest,
-				"aliased with mapping '" + innerRequest + "': '" + alias + "' to '" + newRequestPath + "'",
-				context,
-				callback,
-			)
+			return callback()
 		}
 	}
 }
