@@ -1,6 +1,6 @@
 {
   "name": "ts-paths-resolve-plugin",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "webpack alias resolve plugin for that paths in tsconfig.json",
   "main": "dist/index.js",
   "types": "typings/index.d.ts",
