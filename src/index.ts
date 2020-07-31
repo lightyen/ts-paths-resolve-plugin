@@ -9,7 +9,6 @@ import {
 	resolveModuleName,
 	createCompilerHost,
 } from "typescript"
-import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
 import path from "path"
 import fs from "fs"
 
@@ -18,7 +17,12 @@ interface Hooks {
 }
 
 interface Request {
-	request?: Request | string
+	request: string
+	module: boolean
+	directory: false
+	file: boolean
+	descriptionFilePath: string
+	descriptionFileData: unknown
 	relativePath: string
 	context: {
 		issuer: string
@@ -26,9 +30,9 @@ interface Request {
 }
 
 interface ResolveContext {
-	log: any
+	log: unknown
 	stack: Set<string>
-	missing: any
+	missing: unknown
 }
 
 interface Resolver {
@@ -47,7 +51,6 @@ interface Resolver {
 interface Mapping {
 	alias: {
 		source: string
-		unique: boolean
 		wildcard: boolean
 		pattern: RegExp
 	}
@@ -93,7 +96,7 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		let { compilerOptions } = config
 		compilerOptions = compilerOptions || {}
 		compilerOptions.baseUrl = compilerOptions.baseUrl || "."
-		switch (String.prototype.toLocaleLowerCase(compilerOptions.moduleResolution)) {
+		switch (String.prototype.toLocaleLowerCase.call(compilerOptions.moduleResolution)) {
 			case "classic":
 				compilerOptions.moduleResolution = ModuleResolutionKind.Classic
 				break
@@ -104,32 +107,19 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		return { compilerOptions }
 	}
 
-	// TODO: match "*": ["*", "generated/*"]
-
 	private createMappings(): Mapping[] {
 		const escapeRegExp = (value: string) => value.replace(/[-\/\\^$*+?\.()[\]{}]/g, "\\$&")
 		const mappings: Mapping[] = []
-
 		const paths = this.compilerOptions.paths || {}
 
-		if (this.logLevel != "none") {
-			if (Object.keys(paths).length === 0) {
-				console.log(`\x1b[1;33m(!) [${this.pluginName}]: typescript path alias are empty.\x1b[0m`)
-			}
+		if (this.logLevel != "none" && Object.keys(paths).length === 0) {
+			console.log(`\x1b[1;33m(!) [${this.pluginName}]: typescript path alias are empty.\x1b[0m`)
 		}
 
 		for (const alias of Object.keys(paths)) {
-			if (alias === "*") {
-				if (this.logLevel != "none") {
-					console.log(`\x1b[1;33m(!) [${this.pluginName}]: alias "*" is not accepted.\x1b[0m`)
-				}
-				continue
-			}
-			const unique = false
 			const wildcard = alias.indexOf("*") !== -1
-			const excapedAlias = escapeRegExp(alias)
 			const targets = paths[alias].filter(target => {
-				if (target.startsWith("@types") || target.endsWith(".d.ts")) {
+				if (target.indexOf("@types") !== -1 || target.endsWith(".d.ts")) {
 					if (this.logLevel === "debug") {
 						console.log(`\x1b[1;33m(!) [${this.pluginName}]: type defined ${target} is ignored.\x1b[0m`)
 					}
@@ -137,11 +127,17 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 				}
 				return true
 			})
+			if (alias === "*") {
+				mappings.push({ alias: { source: alias, wildcard, pattern: /(.*)/ }, targets })
+				continue
+			}
+			const excapedAlias = escapeRegExp(alias)
 			const pattern = wildcard
 				? new RegExp(`^${excapedAlias.replace("\\*", "(.*)")}`)
 				: new RegExp(`^${excapedAlias}$`)
-			mappings.push({ alias: { unique, source: alias, wildcard, pattern }, targets })
+			mappings.push({ alias: { source: alias, wildcard, pattern }, targets })
 		}
+
 		if (this.logLevel === "debug") {
 			for (const mapping of mappings) {
 				console.log(
@@ -171,9 +167,13 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 		if (!match) {
 			return ""
 		}
+
 		for (const target of mapping.targets) {
-			const newPath = mapping.alias.wildcard ? target.replace("*", match[1]) : target
-			const answer = path.resolve(baseUrl, newPath)
+			let predicted = target
+			if (mapping.alias.wildcard) {
+				predicted = target.replace("*", match[1])
+			}
+			const answer = path.resolve(baseUrl, predicted)
 			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host)
 			if (result?.resolvedModule) {
 				return result.resolvedModule.resolvedFileName
@@ -187,29 +187,31 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 
 	private resolveTsPaths(resolver: Resolver) {
 		return (request: Request, context: ResolveContext, callback: Function) => {
-			const innerRequest: string = getInnerRequest(resolver, request)
-			if (!innerRequest || this.mappings.length == 0) {
+			if (request == null || !request.module) {
 				return callback()
 			}
 
-			const hook = resolver.ensureHook("resolve")
+			const importer = request.context.issuer
+			if (!importer) {
+				return callback()
+			}
 
+			const source = request.request
 			for (const mapping of this.mappings) {
 				const resolved = this.findMapping({
 					mapping,
-					source: innerRequest,
-					importer: request.context.issuer,
+					source,
+					importer,
 					baseUrl: this.baseUrl,
 				})
 				if (resolved) {
 					if (this.logLevel === "debug") {
-						console.log(`\x1b[36m[${this.pluginName}]\x1b[0m`, innerRequest, "->", resolved)
+						console.log(`\x1b[36m[${this.pluginName}]\x1b[0m`, source, "->", resolved)
 					}
-					const newRequest = { ...request, request: resolved }
 					return resolver.doResolve(
-						hook,
-						newRequest,
-						"aliased with mapping '" + innerRequest + "': '" + mapping.alias + "' to '" + resolved + "'",
+						resolver.ensureHook("resolve"),
+						{ ...request, request: resolved },
+						"aliased with mapping '" + source + "': '" + mapping.alias.source + "' to '" + resolved + "'",
 						context,
 						callback,
 					)
