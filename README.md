@@ -1,6 +1,6 @@
 # ts-paths-resolve-plugin
 
-Make webpack resolve alias with tsconfig paths
+A webpack resolve plugin for tsconfig-paths
 
 ```sh
 yarn add -D ts-paths-resolve-plugin
@@ -38,6 +38,21 @@ Example tsconfig.json
 }
 
 ```
+
+## Options
+
+### tsConfigPath _(string)_
+
+Specify set where your TypeScript configuration file.
+
+If not set:
+
+- use Environment variable **TS_NODE_PROJECT**
+- or search tsconfig.json in current working directory.
+
+### logLevel _("warn" | "debug" | "none") (default: "warn")_
+
+Log level when the plugin is running.
 
 ## reference
 
