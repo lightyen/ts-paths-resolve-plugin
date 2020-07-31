@@ -226,3 +226,5 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 }
 
 export default TsPathsResolvePlugin
+
+module.exports = TsPathsResolvePlugin
