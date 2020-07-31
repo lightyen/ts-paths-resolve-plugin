@@ -174,6 +174,9 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 				predicted = target.replace("*", match[1])
 			}
 			const answer = path.resolve(baseUrl, predicted)
+			if (answer.indexOf("node_modules/") != -1) {
+				return answer
+			}
 			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host)
 			if (result?.resolvedModule) {
 				return result.resolvedModule.resolvedFileName

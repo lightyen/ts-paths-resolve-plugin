@@ -1,8 +1,9 @@
 {
   "name": "ts-paths-resolve-plugin",
-  "version": "1.4.3",
-  "description": "webpack alias resolve plugin for that paths in tsconfig.json",
-  "main": "dist/index.js",
+  "version": "1.4.5",
+  "description": "A webpack resolve plugin for tsconfig-paths",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
   "types": "typings/index.d.ts",
   "repository": {
     "url": "https://github.com/lightyen/ts-paths-resolve-plugin"

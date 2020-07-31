@@ -11,6 +11,12 @@ export default [
 				file: pkg.main,
 				format: "cjs",
 				exports: "named",
+				sourcemap: true,
+			},
+			{
+				file: pkg.module,
+				format: "esm",
+				sourcemap: true,
 			},
 		],
 		plugins: [typescript(), nodeResolve({ preferBuiltins: true }), commonjs()],
