@@ -39,6 +39,16 @@ Example tsconfig.json
 
 ```
 
+And then you can import alias instead of annoying path
+
+```js
+// import App from "../../../../App"
+import App from "~/App"
+
+...
+
+```
+
 ## Options
 
 ### tsConfigPath _(string)_
@@ -57,3 +67,4 @@ Log level when the plugin is running.
 ## reference
 
 - https://www.typescriptlang.org/docs/handbook/module-resolution.html#path-mapping
+- https://github.com/microsoft/TypeScript/issues/5039

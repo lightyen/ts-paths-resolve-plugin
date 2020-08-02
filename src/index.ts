@@ -1,27 +1,38 @@
 import type { ResolvePlugin } from "webpack"
 import type { Hook } from "tapable"
-import type { CompilerHost, CompilerOptions } from "typescript"
-import {
-	ModuleResolutionKind,
-	sys,
-	findConfigFile,
-	readConfigFile,
-	resolveModuleName,
-	createCompilerHost,
-} from "typescript"
+import ts from "typescript"
 import path from "path"
 import fs from "fs"
 
+interface Resolver {
+	hooks: Hooks
+	getHook: (source: string) => Hook
+	doResolve(
+		hook: Hook,
+		request: Request,
+		description: string,
+		resolveContext: ResolveContext,
+		callback: (err?: Error, result?: any) => void,
+	): void
+	ensureHook(source: string): Hook
+	join(relativePath: string, innerRequest: Request): Request
+}
+
 interface Hooks {
 	describedResolve: Hook
+	resolve: Hook
 }
 
 interface Request {
+	path: string | false
 	request: string
+	query: string
+	fragment: string
+	directory: boolean
 	module: boolean
-	directory: false
 	file: boolean
 	descriptionFilePath: string
+	descriptionFileRoot: string
 	descriptionFileData: unknown
 	relativePath: string
 	context: {
@@ -30,198 +41,237 @@ interface Request {
 }
 
 interface ResolveContext {
-	log: unknown
+	log: (value: string) => void
 	stack: Set<string>
 	missing: unknown
 }
 
-interface Resolver {
-	hooks: Hooks
-	doResolve(
-		hook: Hook,
-		request: Request,
-		description: string,
-		resolveContext: ResolveContext,
-		Callback: Function,
-	): void
-	ensureHook(name: string): Hook
-	join(relativePath: string, innerRequest: Request): Request
-}
-
 interface Mapping {
 	alias: {
-		source: string
 		wildcard: boolean
-		pattern: RegExp
+		pattern: string
+		prefix: string
+		suffix: string
 	}
 	targets: string[]
 }
 
+type LogLevel = "warn" | "debug" | "none"
+
 interface TsPathsResolvePluginOpitons {
 	tsConfigPath: string
-	logLevel: "warn" | "debug" | "none"
+	logLevel: LogLevel
 }
 
 export class TsPathsResolvePlugin implements ResolvePlugin {
 	pluginName: string
-	configFilePath: string
-	compilerOptions: CompilerOptions
-	baseUrl: string
+	tsConfigPath: string
+	compilerOptions: ts.CompilerOptions
 	mappings: Mapping[]
-	logLevel: "warn" | "debug" | "none"
-	host: CompilerHost
+	logLevel: LogLevel
 	constructor({
-		tsConfigPath = process.env["TS_NODE_PROJECT"] || findConfigFile(".", sys.fileExists) || "tsconfig.json",
+		tsConfigPath = process.env["TS_NODE_PROJECT"] || ts.findConfigFile(".", ts.sys.fileExists) || "tsconfig.json",
 		logLevel = "warn",
 	}: Partial<TsPathsResolvePluginOpitons> = {}) {
-		this.pluginName = "ts-paths-resolve-plugin"
-		this.configFilePath = tsConfigPath
+		this.pluginName = "TsPathsResolvePlugin"
+		this.tsConfigPath = tsConfigPath
 		this.logLevel = logLevel
-		const { compilerOptions } = this.getTsConfig()
-		this.compilerOptions = compilerOptions
-		this.baseUrl = path.resolve(path.dirname(this.configFilePath), compilerOptions.baseUrl)
-		this.mappings = this.createMappings()
-		this.host = createCompilerHost(this.compilerOptions)
+		this.compilerOptions = this.getTsConfig(this.tsConfigPath, this.logLevel)
+		this.mappings = this.createMappings(this.compilerOptions, this.logLevel)
 	}
 
-	apply(resolver: Resolver) {
-		resolver.hooks.describedResolve.tapAsync(this.pluginName, this.resolveTsPaths(resolver))
-	}
-
-	private getTsConfig(): { compilerOptions: CompilerOptions } {
-		const { config, error } = readConfigFile(this.configFilePath, sys.readFile)
-		if (error) {
-			throw new Error(error.messageText.toString())
-		}
-		let { compilerOptions } = config
-		compilerOptions = compilerOptions || {}
-		compilerOptions.baseUrl = compilerOptions.baseUrl || "."
-		switch (String.prototype.toLocaleLowerCase.call(compilerOptions.moduleResolution)) {
-			case "classic":
-				compilerOptions.moduleResolution = ModuleResolutionKind.Classic
-				break
+	private formatLog(level: "error" | "warn" | "info", value: unknown) {
+		switch (level) {
+			case "error":
+				return `\x1b[1;31m(!) [${this.pluginName}]: ${value}\x1b[0m`
+			case "warn":
+				return `\x1b[1;33m(!) [${this.pluginName}]: ${value}\x1b[0m`
 			default:
-				compilerOptions.moduleResolution = ModuleResolutionKind.NodeJs
-				break
+				return `\x1b[1;34m(!) [${this.pluginName}]: ${value}\x1b[0m`
 		}
-		return { compilerOptions }
 	}
 
-	private createMappings(): Mapping[] {
-		const escapeRegExp = (value: string) => value.replace(/[-\/\\^$*+?\.()[\]{}]/g, "\\$&")
-		const mappings: Mapping[] = []
-		const paths = this.compilerOptions.paths || {}
-
-		if (this.logLevel != "none" && Object.keys(paths).length === 0) {
-			console.log(`\x1b[1;33m(!) [${this.pluginName}]: typescript path alias are empty.\x1b[0m`)
+	private getTsConfig(tsConfigPath: string, logLevel: LogLevel): ts.CompilerOptions {
+		const { error, config } = ts.readConfigFile(tsConfigPath, ts.sys.readFile)
+		if (error) {
+			throw new Error(this.formatLog("error", error.messageText))
 		}
+		let { errors, options: compilerOptions } = ts.parseJsonConfigFileContent(
+			config,
+			ts.sys,
+			path.dirname(tsConfigPath),
+		)
+		if (errors.length > 0) {
+			throw new Error(this.formatLog("error", errors.map(err => err.messageText.toString()).join("\n")))
+		}
+		if (!compilerOptions) {
+			throw new Error(this.formatLog("error", "'compilerOptions' is gone."))
+		}
+		if (!compilerOptions.baseUrl) {
+			throw new Error(
+				this.formatLog(
+					"error",
+					"Option 'compilerOptions.paths' cannot be used without specifying 'compilerOptions.baseUrl' option.",
+				),
+			)
+		}
+		if (!compilerOptions.paths || Object.keys(compilerOptions.paths).length === 0) {
+			compilerOptions.paths = {}
+			logLevel != "none" && console.warn(this.formatLog("warn", "typescript compilerOptions.paths are empty."))
+		}
+		return compilerOptions
+	}
 
-		for (const alias of Object.keys(paths)) {
-			const wildcard = alias.indexOf("*") !== -1
-			const targets = paths[alias].filter(target => {
+	private createMappings(compilerOptions: ts.CompilerOptions, logLevel: LogLevel): Mapping[] {
+		const countWildcard = (value: string) => value.match(/\*/g)?.length
+		const valid = (value: string) => /(\*|\/\*|\/\*\/)/.test(value)
+		const mappings: Mapping[] = []
+		for (const pattern of Object.keys(compilerOptions.paths)) {
+			if (countWildcard(pattern) > 1) {
+				logLevel != "none" &&
+					console.warn(
+						this.formatLog("warn", `path pattern '${pattern}' can have at most one '*' character.`),
+					)
+				continue
+			}
+			const wildcard = pattern.indexOf("*")
+			if (wildcard !== -1 && !valid(pattern)) {
+				logLevel != "none" && console.warn(this.formatLog("warn", `path pattern '${pattern}' is not valid.`))
+				continue
+			}
+			const targets = compilerOptions.paths[pattern].filter(target => {
+				const wildcard = target.indexOf("*")
+				if (wildcard !== -1 && !valid(target)) {
+					logLevel != "none" &&
+						console.warn(this.formatLog("warn", `target pattern '${target}' is not valid`))
+					return false
+				}
 				if (target.indexOf("@types") !== -1 || target.endsWith(".d.ts")) {
-					if (this.logLevel === "debug") {
-						console.log(`\x1b[1;33m(!) [${this.pluginName}]: type defined ${target} is ignored.\x1b[0m`)
-					}
+					logLevel != "none" && console.warn(this.formatLog("warn", `type defined ${target} is ignored.`))
 					return false
 				}
 				return true
 			})
-			if (alias === "*") {
-				mappings.push({ alias: { source: alias, wildcard, pattern: /(.*)/ }, targets })
+			if (targets.length == 0) {
 				continue
 			}
-			const excapedAlias = escapeRegExp(alias)
-			const pattern = wildcard
-				? new RegExp(`^${excapedAlias.replace("\\*", "(.*)")}`)
-				: new RegExp(`^${excapedAlias}$`)
-			mappings.push({ alias: { source: alias, wildcard, pattern }, targets })
+			if (pattern === "*") {
+				mappings.push({ alias: { wildcard: true, pattern, prefix: "", suffix: "" }, targets })
+				continue
+			}
+			mappings.push({
+				alias: {
+					wildcard: wildcard !== -1,
+					pattern,
+					prefix: pattern.substr(0, wildcard),
+					suffix: pattern.substr(wildcard + 1),
+				},
+				targets,
+			})
 		}
 
-		if (this.logLevel === "debug") {
+		if (logLevel === "debug") {
 			for (const mapping of mappings) {
-				console.log(
-					`\x1b[36m[${this.pluginName}]\x1b[0m`,
-					"pattern:",
-					mapping.alias.pattern,
-					"targets:",
-					mapping.targets,
-				)
+				console.log(this.formatLog("info", `pattern: '${mapping.alias.pattern}' targets: '${mapping.targets}'`))
 			}
 		}
 		return mappings
 	}
 
-	private findMapping({
-		mapping,
-		source,
+	private findResolve({
+		compilerOptions,
+		mappings,
+		request,
 		importer,
-		baseUrl,
 	}: {
-		mapping: Mapping
-		source: string
+		compilerOptions: ts.CompilerOptions
+		mappings: Mapping[]
+		request: string
 		importer: string
-		baseUrl: string
 	}) {
-		let match = source.match(mapping.alias.pattern)
-		if (!match) {
+		let longestMatchedPrefixLength = 0
+		let matched: Mapping = undefined
+		for (const mapping of mappings) {
+			const { wildcard, prefix, suffix, pattern: source } = mapping.alias
+			if (
+				wildcard &&
+				request.length >= prefix.length + suffix.length &&
+				request.startsWith(prefix) &&
+				request.endsWith(suffix)
+			) {
+				if (longestMatchedPrefixLength < prefix.length) {
+					longestMatchedPrefixLength = prefix.length
+					matched = mapping
+				}
+			} else if (request === source) {
+				matched = mapping
+				break
+			}
+		}
+
+		if (!matched) {
 			return ""
 		}
 
-		for (const target of mapping.targets) {
+		const matchedWildcard = request.substr(
+			matched.alias.prefix.length,
+			request.length - matched.alias.suffix.length,
+		)
+		for (const target of matched.targets) {
 			let predicted = target
-			if (mapping.alias.wildcard) {
-				predicted = target.replace("*", match[1])
+			if (matched.alias.wildcard) {
+				predicted = target.replace("*", matchedWildcard)
 			}
-			const answer = path.resolve(baseUrl, predicted)
-			if (answer.indexOf("node_modules/") != -1) {
+			const answer = path.resolve(this.compilerOptions.baseUrl, predicted)
+			if (answer.indexOf("node_modules/") !== -1) {
 				return answer
 			}
-			const result = resolveModuleName(answer, importer, this.compilerOptions, this.host)
+			// NOTE: resolve module path with typescript API
+			const result = ts.resolveModuleName(answer, importer, compilerOptions, ts.sys)
 			if (result?.resolvedModule) {
 				return result.resolvedModule.resolvedFileName
 			}
+			// NOTE: For those are not modules, ex: css, fonts...etc.
 			if (fs.existsSync(answer)) {
 				return answer
 			}
 		}
+
 		return ""
 	}
 
-	private resolveTsPaths(resolver: Resolver) {
-		return (request: Request, context: ResolveContext, callback: Function) => {
-			if (request == null || !request.module) {
-				return callback()
-			}
-
-			const importer = request.context.issuer
-			if (!importer) {
-				return callback()
-			}
-
-			const source = request.request
-			for (const mapping of this.mappings) {
-				const resolved = this.findMapping({
-					mapping,
-					source,
+	apply(resolver: Resolver) {
+		resolver.hooks.describedResolve.tapAsync(
+			this.pluginName,
+			(request: Request, context: ResolveContext, callback: (err?: Error, result?: any) => void) => {
+				if (!request.module) {
+					return callback()
+				}
+				const importer = request.context.issuer
+				if (!importer) {
+					return callback()
+				}
+				const resolved = this.findResolve({
+					compilerOptions: this.compilerOptions,
+					mappings: this.mappings,
+					request: request.request,
 					importer,
-					baseUrl: this.baseUrl,
 				})
 				if (resolved) {
 					if (this.logLevel === "debug") {
-						console.log(`\x1b[36m[${this.pluginName}]\x1b[0m`, source, "->", resolved)
+						console.log(this.formatLog("info", `${request.request} -> ${resolved}`))
 					}
 					return resolver.doResolve(
-						resolver.ensureHook("resolve"),
+						resolver.hooks.resolve,
 						{ ...request, request: resolved },
-						"aliased with mapping '" + source + "': '" + mapping.alias.source + "' to '" + resolved + "'",
+						null,
 						context,
 						callback,
 					)
 				}
-			}
-			return callback()
-		}
+				return callback()
+			},
+		)
 	}
 }
 
