@@ -242,7 +242,6 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 	}
 
 	apply(resolver: Resolver) {
-		console.log("apply", this.pluginName)
 		resolver.hooks.describedResolve.tapAsync(
 			this.pluginName,
 			(request: Request, context: ResolveContext, callback: (err?: Error, result?: any) => void) => {
