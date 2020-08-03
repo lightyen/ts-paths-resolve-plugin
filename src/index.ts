@@ -3,6 +3,7 @@ import type { Hook } from "tapable"
 import ts from "typescript"
 import path from "path"
 import fs from "fs"
+import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
 
 interface Resolver {
 	hooks: Hooks
@@ -241,10 +242,12 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 	}
 
 	apply(resolver: Resolver) {
+		console.log("apply", this.pluginName)
 		resolver.hooks.describedResolve.tapAsync(
 			this.pluginName,
 			(request: Request, context: ResolveContext, callback: (err?: Error, result?: any) => void) => {
-				if (!request.module) {
+				const innerRequest: string = getInnerRequest(resolver, request)
+				if (!innerRequest || !request.module) {
 					return callback()
 				}
 				const importer = request.context.issuer
@@ -254,12 +257,12 @@ export class TsPathsResolvePlugin implements ResolvePlugin {
 				const resolved = this.findResolve({
 					compilerOptions: this.compilerOptions,
 					mappings: this.mappings,
-					request: request.request,
+					request: innerRequest,
 					importer,
 				})
 				if (resolved) {
 					if (this.logLevel === "debug") {
-						console.log(this.formatLog("info", `${request.request} -> ${resolved}`))
+						console.log(this.formatLog("info", `${innerRequest} -> ${resolved}`))
 					}
 					return resolver.doResolve(
 						resolver.hooks.resolve,
