@@ -1,6 +1,6 @@
 {
   "name": "ts-paths-resolve-plugin",
-  "version": "5.0.0-beta.0",
+  "version": "5.0.0-beta.1",
   "description": "A webpack resolve plugin for tsconfig-paths",
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
