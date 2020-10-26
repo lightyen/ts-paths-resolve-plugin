@@ -1,5 +1,4 @@
-import type { ResolvePlugin } from "webpack"
-import type { Hook } from "tapable"
+import type { Hook,AsyncHook } from "tapable"
 import ts from "typescript"
 import path from "path"
 import fs from "fs"
@@ -7,21 +6,21 @@ import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
 
 interface Resolver {
 	hooks: Hooks
-	getHook: (source: string) => Hook
+	getHook: (source: string) => Hook<any, any>
 	doResolve(
-		hook: Hook,
+		hook: Hook<any, any>,
 		request: Request,
 		description: string,
 		resolveContext: ResolveContext,
 		callback: (err?: Error, result?: any) => void,
 	): void
-	ensureHook(source: string): Hook
+	ensureHook(source: string): Hook<any, any>
 	join(relativePath: string, innerRequest: Request): Request
 }
 
 interface Hooks {
-	describedResolve: Hook
-	resolve: Hook
+	describedResolve: AsyncHook<any, any>
+	resolve: Hook<any, any>
 }
 
 interface Request {
@@ -64,7 +63,7 @@ interface TsPathsResolvePluginOpitons {
 	logLevel: LogLevel
 }
 
-export class TsPathsResolvePlugin implements ResolvePlugin {
+export class TsPathsResolvePlugin {
 	pluginName: string
 	tsConfigPath: string
 	compilerOptions: ts.CompilerOptions
