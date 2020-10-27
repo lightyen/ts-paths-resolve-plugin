@@ -5,7 +5,7 @@ interface TsPathsResolvePluginOpitons {
 
 declare class TsPathsResolvePlugin {
 	constructor(options?: Partial<TsPathsResolvePluginOpitons>)
-	apply(resolver: any): void
+	apply(resolver: unknown): void
 }
 
 export = TsPathsResolvePlugin

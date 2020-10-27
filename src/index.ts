@@ -6,21 +6,21 @@ import getInnerRequest from "enhanced-resolve/lib/getInnerRequest"
 
 interface Resolver {
 	hooks: Hooks
-	getHook: (source: string) => Hook<any, any>
+	getHook: (source: string) => Hook<unknown, unknown>
 	doResolve(
-		hook: Hook<any, any>,
+		hook: Hook<unknown, unknown>,
 		request: Request,
 		description: string,
 		resolveContext: ResolveContext,
-		callback: (err?: Error, result?: any) => void,
+		callback: (err?: Error, result?: unknown) => void,
 	): void
-	ensureHook(source: string): Hook<any, any>
+	ensureHook(source: string): Hook<unknown, unknown>
 	join(relativePath: string, innerRequest: Request): Request
 }
 
 interface Hooks {
-	describedResolve: AsyncHook<any, any>
-	resolve: Hook<any, any>
+	describedResolve: AsyncHook<any, unknown>
+	resolve: Hook<unknown, unknown>
 }
 
 interface Request {
@@ -243,7 +243,7 @@ export class TsPathsResolvePlugin {
 	apply(resolver: Resolver) {
 		resolver.hooks.describedResolve.tapAsync(
 			this.pluginName,
-			(request: Request, context: ResolveContext, callback: (err?: Error, result?: any) => void) => {
+			(request: Request, context: ResolveContext, callback: (err?: Error, result?: unknown) => void) => {
 				const innerRequest: string = getInnerRequest(resolver, request)
 				if (!innerRequest || !request.module) {
 					return callback()
