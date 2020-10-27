@@ -1,10 +1,10 @@
 {
   "name": "ts-paths-resolve-plugin",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "A webpack resolve plugin for tsconfig-paths",
   "main": "lib/index.cjs.js",
   "module": "lib/index.esm.js",
-  "types": "types.d.ts",
+  "types": "lib/types.d.ts",
   "repository": {
     "url": "https://github.com/lightyen/ts-paths-resolve-plugin"
   },
