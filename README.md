@@ -1,12 +1,12 @@
 # ts-paths-resolve-plugin
 
-A webpack resolve plugin for tsconfig-paths
+A webpack resolve plugin for resolving tsconfig paths.
 
 ```sh
 yarn add -D ts-paths-resolve-plugin
 ```
 
-webpack.config.js
+Configurate in `webpack.config.js`:
 
 ```js
 
@@ -19,7 +19,7 @@ module.exports = {
 }
 ```
 
-Example tsconfig.json
+`tsconfig.json` example:
 
 ```json
 {
@@ -39,7 +39,7 @@ Example tsconfig.json
 
 ```
 
-And then you can import alias instead of annoying path
+And you can import with alias instead of annoying path
 
 ```js
 // import App from "../../../../App"
