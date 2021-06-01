@@ -9,6 +9,7 @@
     "removeComments": true,
     "noImplicitAny": false,
     "strictNullChecks": false,
+    "lib": ["esnext"],
     "target": "es5",
     "baseUrl": "."
   },
