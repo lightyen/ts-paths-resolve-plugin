@@ -2,6 +2,7 @@ import typescript from "rollup-plugin-typescript2"
 import nodeResolve from "@rollup/plugin-node-resolve"
 import commonjs from "@rollup/plugin-commonjs"
 import pkg from "./package.json"
+import generate from "./generate"
 
 export default [
 	{
@@ -19,7 +20,7 @@ export default [
 				sourcemap: true,
 			},
 		],
-		plugins: [typescript(), nodeResolve({ preferBuiltins: true }), commonjs()],
+		plugins: [typescript(), nodeResolve({ preferBuiltins: true }), commonjs(), generate()],
 		external: ["fs", "path", "typescript"],
 	},
 ]
