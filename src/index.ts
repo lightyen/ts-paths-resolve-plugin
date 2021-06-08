@@ -278,4 +278,6 @@ export class TsPathsResolvePlugin {
 
 export default TsPathsResolvePlugin
 
-module.exports = TsPathsResolvePlugin
+if (globalThis.module) {
+	module.exports = TsPathsResolvePlugin
+}
