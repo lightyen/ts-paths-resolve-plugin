@@ -47,12 +47,10 @@ interface ResolveContext {
 }
 
 interface Mapping {
-	alias: {
-		wildcard: boolean
-		pattern: string
-		prefix: string
-		suffix: string
-	}
+	pattern: string
+	prefix: string
+	suffix: string
+	wildcard: boolean
 	targets: string[]
 }
 
@@ -62,6 +60,30 @@ interface TsPathsResolvePluginOpitons {
 	tsConfigPath: string
 	logLevel: LogLevel
 }
+
+function isPatternMatch(prefix: string, suffix: string, candidate: string) {
+	return (
+		candidate.length >= prefix.length + suffix.length && candidate.startsWith(prefix) && candidate.endsWith(suffix)
+	)
+}
+
+function findBestPatternMatch(patterns: Mapping[], candidate: string) {
+	let longestMatchedPrefixLength = -1
+	let matched: Mapping = undefined
+	for (const p of patterns) {
+		const { wildcard, prefix, suffix, pattern } = p
+		if (wildcard && isPatternMatch(prefix, suffix, candidate)) {
+			if (longestMatchedPrefixLength < prefix.length) {
+				longestMatchedPrefixLength = prefix.length
+				matched = p
+			}
+		} else if (pattern === candidate) {
+			return p
+		}
+	}
+	return matched
+}
+
 
 export class TsPathsResolvePlugin {
 	pluginName: string
@@ -117,23 +139,15 @@ export class TsPathsResolvePlugin {
 	}
 
 	private createMappings(compilerOptions: ts.CompilerOptions, logLevel: LogLevel): Mapping[] {
-		const countWildcard = (value: string) => value.match(/\*/g)?.length
-		const valid = (value: string) => /(\*|\/\*|\/\*\/)/.test(value)
 		const mappings: Mapping[] = []
 		for (const pattern of Object.keys(compilerOptions.paths)) {
-			if (countWildcard(pattern) > 1) {
-				logLevel != "none" &&
-					console.warn(
-						this.formatLog("warn", `path pattern '${pattern}' includes at most one '*' character.`),
-					)
-				continue
-			}
-			const wildcard = pattern.indexOf("*")
-			if (wildcard !== -1 && !valid(pattern)) {
+			const indexOfStar = pattern.indexOf("*")
+			if (indexOfStar !== -1 && pattern.indexOf("*", indexOfStar + 1) !== -1) {
 				logLevel != "none" && console.warn(this.formatLog("warn", `path pattern '${pattern}' is not valid.`))
 				continue
 			}
 			const targets = compilerOptions.paths[pattern].filter(target => {
+				const valid = (value: string) => /(\*|\/\*|\/\*\/)/.test(value)
 				const wildcard = target.indexOf("*")
 				if (wildcard !== -1 && !valid(target)) {
 					logLevel != "none" &&
@@ -150,23 +164,20 @@ export class TsPathsResolvePlugin {
 				continue
 			}
 			if (pattern === "*") {
-				mappings.push({ alias: { wildcard: true, pattern, prefix: "", suffix: "" }, targets })
+				mappings.push({ wildcard: true, pattern, prefix: "", suffix: "", targets })
 				continue
 			}
 			mappings.push({
-				alias: {
-					wildcard: wildcard !== -1,
-					pattern,
-					prefix: pattern.substr(0, wildcard),
-					suffix: pattern.substr(wildcard + 1),
-				},
+				wildcard: indexOfStar !== -1,
+				pattern,
+				prefix: pattern.substr(0, indexOfStar),
+				suffix: pattern.substr(indexOfStar + 1),
 				targets,
 			})
 		}
-
 		if (logLevel === "debug") {
 			for (const mapping of mappings) {
-				console.log(this.formatLog("info", `pattern: '${mapping.alias.pattern}' targets: '${mapping.targets}'`))
+				console.log(this.formatLog("info", `pattern: '${mapping.pattern}' targets: '${mapping.targets}'`))
 			}
 		}
 		return mappings
@@ -183,49 +194,29 @@ export class TsPathsResolvePlugin {
 		request: string
 		importer: string
 	}) {
-		let longestMatchedPrefixLength = 0
-		let matched: Mapping = undefined
-		for (const mapping of mappings) {
-			const { wildcard, prefix, suffix, pattern: source } = mapping.alias
-			if (
-				wildcard &&
-				request.length >= prefix.length + suffix.length &&
-				request.startsWith(prefix) &&
-				request.endsWith(suffix)
-			) {
-				if (longestMatchedPrefixLength < prefix.length) {
-					longestMatchedPrefixLength = prefix.length
-					matched = mapping
-				}
-			} else if (request === source) {
-				matched = mapping
-				break
-			}
-		}
-
+		const matched = findBestPatternMatch(mappings, request)
 		if (!matched) {
 			return ""
 		}
-
 		const matchedWildcard = request.substr(
-			matched.alias.prefix.length,
-			request.length - matched.alias.suffix.length,
+			matched.prefix.length,
+			request.length - matched.suffix.length,
 		)
 		for (const target of matched.targets) {
 			let predicted = target
-			if (matched.alias.wildcard) {
+			if (matched.wildcard) {
 				predicted = target.replace("*", matchedWildcard)
 			}
 			const answer = path.resolve(this.compilerOptions.baseUrl, predicted)
 			if (answer.indexOf("node_modules/") !== -1) {
 				return answer
 			}
-			// NOTE: resolve module path with typescript API
+			// resolve module path with typescript API
 			const result = ts.resolveModuleName(answer, importer, compilerOptions, ts.sys)
 			if (result?.resolvedModule) {
 				return result.resolvedModule.resolvedFileName
 			}
-			// NOTE: For those are not modules, ex: css, fonts...etc.
+			// for assets module
 			if (fs.existsSync(answer)) {
 				return answer
 			}
