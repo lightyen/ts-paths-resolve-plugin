@@ -1,4 +1,4 @@
-import type { Hook,AsyncHook } from "tapable"
+import type { Hook, AsyncHook } from "tapable"
 import ts from "typescript"
 import path from "path"
 import fs from "fs"
@@ -105,19 +105,13 @@ export class TsPathsResolvePlugin {
 			throw new Error(this.formatLog("error", errors.map(err => err.messageText.toString()).join("\n")))
 		}
 		if (!compilerOptions) {
-			throw new Error(this.formatLog("error", "'compilerOptions' is gone."))
+			throw new Error(this.formatLog("error", "'compilerOptions' is not found."))
 		}
-		if (!compilerOptions.baseUrl) {
-			throw new Error(
-				this.formatLog(
-					"error",
-					"Option 'compilerOptions.paths' cannot be used without specifying 'compilerOptions.baseUrl' option.",
-				),
-			)
+		if (compilerOptions.baseUrl == undefined) {
+			compilerOptions.baseUrl = path.dirname(tsConfigPath)
 		}
 		if (!compilerOptions.paths || Object.keys(compilerOptions.paths).length === 0) {
 			compilerOptions.paths = {}
-			logLevel != "none" && console.warn(this.formatLog("warn", "typescript compilerOptions.paths are empty."))
 		}
 		return compilerOptions
 	}
@@ -130,7 +124,7 @@ export class TsPathsResolvePlugin {
 			if (countWildcard(pattern) > 1) {
 				logLevel != "none" &&
 					console.warn(
-						this.formatLog("warn", `path pattern '${pattern}' can have at most one '*' character.`),
+						this.formatLog("warn", `path pattern '${pattern}' includes at most one '*' character.`),
 					)
 				continue
 			}
